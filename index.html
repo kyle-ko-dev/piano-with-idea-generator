@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 鋼琴靈感產生器</title>
+    <!-- 引入 Tailwind CSS 以進行快速美化 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Tone.js 用於聲音合成 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; }
+        #svg-container { overflow: auto; border: 1px solid #e5e7eb; display: flex; justify-content: center; align-items: center; height: 250px; background-color: #f9fafb; user-select: none; }
+        #piano-svg { width: 100%; transition: transform 0.2s ease-in-out; transform-origin: center; }
+        #piano-svg rect:active { fill: #d1d5db; }
+        #piano-svg.loading { opacity: 0.5; pointer-events: none; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col items-center justify-center min-h-screen p-4 sm:p-6">
+
+    <div class="w-full max-w-6xl bg-white p-5 sm:p-8 rounded-2xl shadow-lg">
+        <h1 class="text-2xl sm:text-3xl font-bold text-center text-gray-800 mb-2">AI 鋼琴靈感產生器</h1>
+        <p class="text-center text-gray-500 mb-6">一個由 Gemini API 驅動的創意音樂工具</p>
+        
+        <div class="mb-8">
+            <div class="flex items-center justify-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-700">互動式鋼琴 🔊</h2>
+                <span id="loading-status" class="ml-4 text-sm text-blue-500"></span>
+            </div>
+            <div class="flex items-center justify-center space-x-4 mb-4">
+                <button id="zoom-out" class="px-5 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors">縮小 (-)</button>
+                <span id="zoom-level" class="text-lg text-gray-600 font-medium w-36 text-center"></span>
+                <button id="zoom-in" class="px-5 py-2 bg-blue-500 text-white font-semibold rounded-lg shadow-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors">放大 (+)</button>
+            </div>
+
+            <div id="svg-container" class="w-full bg-white rounded-lg p-4">
+                <svg id="piano-svg" class="loading" viewBox="0 0 1197 120" xmlns="http://www.w3.org/2000/svg" version="1.1">
+                    <desc>互動式 88 鍵鋼琴鍵盤</desc>
+                    <style>
+                        #white-keys rect:hover { fill: #e0e0e0; cursor: pointer; }
+                        #black-keys rect:hover { fill: #333333; cursor: pointer; }
+                    </style>
+                    <g id="white-keys"><rect data-note="A0" x="0" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B0" x="23" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C1" x="46" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D1" x="69" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E1" x="92" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F1" x="115" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G1" x="138" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A1" x="161" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B1" x="184" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C2" x="207" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D2" x="230" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E2" x="253" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F2" x="276" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G2" x="299" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A2" x="322" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B2" x="345" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C3" x="368" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D3" x="391" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E3" x="414" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F3" x="437" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G3" x="460" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A3" x="483" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B3" x="506" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C4" x="529" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D4" x="552" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E4" x="575" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F4" x="598" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G4" x="621" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A4" x="644" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B4" x="667" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C5" x="690" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D5" x="713" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E5" x="736" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F5" x="759" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G5" x="782" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A5" x="805" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B5" x="828" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C6" x="851" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D6" x="874" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E6" x="897" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F6" x="920" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G6" x="943" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A6" x="966" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B6" x="989" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C7" x="1012" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="D7" x="1035" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="E7" x="1058" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="F7" x="1081" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="G7" x="1104" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="A7" x="1127" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="B7" x="1150" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/><rect data-note="C8" x="1173" y="0" width="23" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="1"/>
+                    </g>
+                    <g id="black-keys">
+                        <rect data-note="A#0" x="16.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#1" x="62.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#1" x="85.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#1" x="131.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#1" x="154.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#1" x="177.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#2" x="223.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#2" x="246.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#2" x="292.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#2" x="315.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#2" x="338.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#3" x="384.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#3" x="407.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#3" x="453.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#3" x="476.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#3" x="499.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#4" x="545.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#4" x="568.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#4" x="614.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#4" x="637.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#4" x="660.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#5" x="706.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#5" x="729.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#5" x="775.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#5" x="798.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#5" x="821.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#6" x="867.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#6" x="890.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#6" x="936.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#6" x="959.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#6" x="982.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="C#7" x="1028.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="D#7" x="1051.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="F#7" x="1097.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="G#7" x="1120.5" y="0" width="13" height="80" fill="#000000"/><rect data-note="A#7" x="1143.5" y="0" width="13" height="80" fill="#000000"/>
+                    </g>
+                </svg>
+            </div>
+        </div>
+
+        <div class="border-t border-gray-200 pt-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4 text-center">✨ 產生旋律靈感</h2>
+            <div class="max-w-2xl mx-auto">
+                
+                <!-- API 金鑰設定區塊 -->
+                <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <!-- 顯示已儲存金鑰的狀態 -->
+                    <div id="api-key-display-view" class="hidden">
+                        <div class="flex justify-between items-center">
+                            <p class="text-sm font-medium text-green-800">✓ API 金鑰已設定</p>
+                            <button id="clear-key-btn" class="px-4 py-2 bg-red-500 text-white text-sm font-semibold rounded-lg shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors">清除金鑰</button>
+                        </div>
+                    </div>
+                    <!-- 輸入新金鑰的區塊 -->
+                    <div id="api-key-setup-view">
+                        <label for="api-key-input" class="block text-sm font-medium text-gray-700 mb-2">您的 Gemini API 金鑰</label>
+                        <div class="flex gap-2">
+                            <input type="password" id="api-key-input" placeholder="請在此貼上您的 API 金鑰" class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-400 focus:outline-none transition">
+                            <button id="save-key-btn" class="px-4 py-2 bg-yellow-500 text-white font-semibold rounded-lg shadow-sm hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400 transition-colors">儲存</button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">您的金鑰只會儲存在您的瀏覽器中，不會上傳。 <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 hover:underline">點此免費取得金鑰</a></p>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <input type="text" id="prompt-input" placeholder="輸入一個主題，例如：星空下的營火" class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none transition">
+                    <button id="generate-btn" class="px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-sm hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition-colors flex items-center justify-center">產生靈感</button>
+                </div>
+                <div id="result-container" class="mt-6 p-5 bg-gray-50 border border-gray-200 rounded-lg min-h-[100px] whitespace-pre-wrap">
+                    <p id="result-text" class="text-gray-600">AI 產生的靈感將會顯示在這裡...</p>
+                    <div id="loader" class="hidden mx-auto loader"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- SVG 縮放功能 ---
+        const svgElement = document.getElementById('piano-svg');
+        const zoomInBtn = document.getElementById('zoom-in');
+        const zoomOutBtn = document.getElementById('zoom-out');
+        const zoomLevelDisplay = document.getElementById('zoom-level');
+        let currentScale = 1.0;
+        const zoomStep = 0.1;
+        function updateZoom() {
+            svgElement.style.transform = `scale(${currentScale})`;
+            zoomLevelDisplay.textContent = `目前縮放：${Math.round(currentScale * 100)}%`;
+        }
+        zoomInBtn.addEventListener('click', () => { currentScale += zoomStep; updateZoom(); });
+        zoomOutBtn.addEventListener('click', () => { if (currentScale > 0.2) { currentScale -= zoomStep; updateZoom(); } });
+        updateZoom();
+
+        // --- 聲音播放功能 (真實鋼琴採樣版) ---
+        const loadingStatus = document.getElementById('loading-status');
+        loadingStatus.textContent = '(音色載入中...)';
+        const sampler = new Tone.Sampler({
+            urls: { A0: "A0.mp3", C1: "C1.mp3", "D#1": "Ds1.mp3", "F#1": "Fs1.mp3", A1: "A1.mp3", C2: "C2.mp3", "D#2": "Ds2.mp3", "F#2": "Fs2.mp3", A2: "A2.mp3", C3: "C3.mp3", "D#3": "Ds3.mp3", "F#3": "Fs3.mp3", A3: "A3.mp3", C4: "C4.mp3", "D#4": "Ds4.mp3", "F#4": "Fs4.mp3", A4: "A4.mp3", C5: "C5.mp3", "D#5": "Ds5.mp3", "F#5": "Fs5.mp3", A5: "A5.mp3", C6: "C6.mp3", "D#6": "Ds6.mp3", "F#6": "Fs6.mp3", A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3", A7: "A7.mp3", C8: "C8.mp3" },
+            release: 1,
+            baseUrl: "https://tonejs.github.io/audio/salamander/",
+            onload: () => {
+                loadingStatus.textContent = '';
+                svgElement.classList.remove('loading');
+            }
+        }).toDestination();
+        const pianoKeys = document.querySelectorAll('#piano-svg rect');
+        let isMouseDown = false;
+        document.body.addEventListener('mousedown', () => { isMouseDown = true; });
+        document.body.addEventListener('mouseup', () => { isMouseDown = false; sampler.releaseAll(); });
+        document.body.addEventListener('mouseleave', () => { isMouseDown = false; sampler.releaseAll(); });
+        function playNote(event) {
+            if (Tone.context.state !== 'running') { Tone.context.resume(); }
+            const note = event.target.dataset.note;
+            if (note && sampler.loaded) { sampler.triggerAttack(note, Tone.now()); }
+        }
+        pianoKeys.forEach(key => {
+            key.addEventListener('mousedown', playNote);
+            key.addEventListener('mouseover', (event) => { if (isMouseDown) { playNote(event); } });
+            key.addEventListener('mouseleave', (event) => {
+                 if (isMouseDown) {
+                    const note = event.target.dataset.note;
+                    if (note) { sampler.triggerRelease(note); }
+                }
+            });
+        });
+
+        // --- Gemini API 功能 (金鑰管理升級) ---
+        const generateBtn = document.getElementById('generate-btn');
+        const promptInput = document.getElementById('prompt-input');
+        const resultText = document.getElementById('result-text');
+        const loader = document.getElementById('loader');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const saveKeyBtn = document.getElementById('save-key-btn');
+        const clearKeyBtn = document.getElementById('clear-key-btn');
+        const apiKeySetupView = document.getElementById('api-key-setup-view');
+        const apiKeyDisplayView = document.getElementById('api-key-display-view');
+
+        function checkApiKey() {
+            const apiKey = localStorage.getItem('geminiApiKey');
+            if (apiKey) {
+                apiKeySetupView.classList.add('hidden');
+                apiKeyDisplayView.classList.remove('hidden');
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                resultText.textContent = '已載入您的 API 金鑰，可以開始產生靈感了！';
+            } else {
+                apiKeySetupView.classList.remove('hidden');
+                apiKeyDisplayView.classList.add('hidden');
+                generateBtn.disabled = true;
+                generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                resultText.textContent = '請先在上方設定您的 Gemini API 金鑰以啟用此功能。';
+                apiKeyInput.value = '';
+            }
+        }
+
+        saveKeyBtn.addEventListener('click', () => {
+            const apiKey = apiKeyInput.value.trim();
+            if (apiKey) {
+                localStorage.setItem('geminiApiKey', apiKey);
+                alert('API 金鑰已儲存！');
+                checkApiKey();
+            } else {
+                alert('請輸入有效的 API 金鑰。');
+            }
+        });
+        
+        clearKeyBtn.addEventListener('click', () => {
+            localStorage.removeItem('geminiApiKey');
+            alert('API 金鑰已清除！');
+            checkApiKey();
+        });
+
+        generateBtn.addEventListener('click', async () => {
+            const apiKey = localStorage.getItem('geminiApiKey');
+            if (!apiKey) {
+                alert('請先儲存您的 Gemini API 金鑰！');
+                return;
+            }
+            const userPrompt = promptInput.value.trim();
+            if (!userPrompt) {
+                resultText.textContent = "請先輸入一個主題或情境！";
+                return;
+            }
+            resultText.textContent = '';
+            loader.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            const fullPrompt = `你是一位充滿創意的音樂夥伴。請根據以下主題，為我建議一段適合鋼琴彈奏的「4個和弦進行」以及一段簡短的「旋律靈感描述」。請讓回覆簡潔、啟發人心，並使用繁體中文。主題是：${userPrompt}`;
+            try {
+                let chatHistory = [{ role: "user", parts: [{ text: fullPrompt }] }];
+                const payload = { contents: chatHistory };
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) {
+                    let errorDetails = `API 請求失敗，狀態碼：${response.status}`;
+                    try {
+                        const errorBody = await response.json();
+                        if(errorBody.error && errorBody.error.message) { errorDetails += ` - ${errorBody.error.message}`; }
+                    } catch (e) {}
+                    throw new Error(errorDetails);
+                }
+                const result = await response.json();
+                
+                // 新增：將完整的 API 回應印在主控台
+                console.log('Gemini API Response:', result);
+
+                if (result.candidates && result.candidates.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    resultText.textContent = text;
+                } else {
+                    resultText.textContent = "抱歉，無法從 AI 獲得有效的回覆。請檢查您的 API 金鑰是否正確或稍後再試。";
+                }
+            } catch (error) {
+                console.error("Gemini API 呼叫失敗:", error);
+                resultText.textContent = `發生錯誤：${error.message}。`;
+            } finally {
+                loader.classList.add('hidden');
+                if (localStorage.getItem('geminiApiKey')) {
+                    generateBtn.disabled = false;
+                    generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        });
+        
+        // 頁面載入時，立即檢查金鑰狀態
+        checkApiKey();
+    </script>
+
+</body>
+</html>
