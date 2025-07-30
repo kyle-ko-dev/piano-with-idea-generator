@@ -13,7 +13,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', 'Noto Sans TC', sans-serif; }
-        #svg-container { overflow: auto; border: 1px solid #e5e7eb; display: flex; justify-content: center; align-items: center; height: 250px; background-color: #f9fafb; user-select: none; }
+        #svg-container { 
+            overflow: auto; 
+            border: 1px solid #e5e7eb; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 250px; 
+            background-color: #f9fafb; 
+            user-select: none; 
+            /* 為了觸控體驗，告訴瀏覽器我們將自行處理觸控行為 */
+            touch-action: none;
+        }
         #piano-svg { width: 100%; transition: transform 0.2s ease-in-out; transform-origin: center; }
         #piano-svg rect:active { fill: #d1d5db; }
         #piano-svg.loading { opacity: 0.5; pointer-events: none; }
@@ -57,17 +68,13 @@
         <div class="border-t border-gray-200 pt-8">
             <h2 class="text-xl font-semibold text-gray-700 mb-4 text-center">✨ 產生旋律靈感</h2>
             <div class="max-w-2xl mx-auto">
-                
-                <!-- API 金鑰設定區塊 -->
                 <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <!-- 顯示已儲存金鑰的狀態 -->
                     <div id="api-key-display-view" class="hidden">
                         <div class="flex justify-between items-center">
                             <p class="text-sm font-medium text-green-800">✓ API 金鑰已設定</p>
                             <button id="clear-key-btn" class="px-4 py-2 bg-red-500 text-white text-sm font-semibold rounded-lg shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 transition-colors">清除金鑰</button>
                         </div>
                     </div>
-                    <!-- 輸入新金鑰的區塊 -->
                     <div id="api-key-setup-view">
                         <label for="api-key-input" class="block text-sm font-medium text-gray-700 mb-2">您的 Gemini API 金鑰</label>
                         <div class="flex gap-2">
@@ -77,7 +84,6 @@
                         <p class="text-xs text-gray-500 mt-2">您的金鑰只會儲存在您的瀏覽器中，不會上傳。 <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 hover:underline">點此免費取得金鑰</a></p>
                     </div>
                 </div>
-
                 <div class="flex flex-col sm:flex-row gap-4">
                     <input type="text" id="prompt-input" placeholder="輸入一個主題，例如：星空下的營火" class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none transition">
                     <button id="generate-btn" class="px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-sm hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 transition-colors flex items-center justify-center">產生靈感</button>
@@ -106,7 +112,7 @@
         zoomOutBtn.addEventListener('click', () => { if (currentScale > 0.2) { currentScale -= zoomStep; updateZoom(); } });
         updateZoom();
 
-        // --- 聲音播放功能 (真實鋼琴採樣版) ---
+        // --- 聲音播放功能 (真實鋼琴採樣 + 多點觸控) ---
         const loadingStatus = document.getElementById('loading-status');
         loadingStatus.textContent = '(音色載入中...)';
         const sampler = new Tone.Sampler({
@@ -118,26 +124,54 @@
                 svgElement.classList.remove('loading');
             }
         }).toDestination();
-        const pianoKeys = document.querySelectorAll('#piano-svg rect');
+        
+        const pianoContainer = document.getElementById('svg-container');
         let isMouseDown = false;
-        document.body.addEventListener('mousedown', () => { isMouseDown = true; });
-        document.body.addEventListener('mouseup', () => { isMouseDown = false; sampler.releaseAll(); });
-        document.body.addEventListener('mouseleave', () => { isMouseDown = false; sampler.releaseAll(); });
-        function playNote(event) {
+        
+        function playNoteFromElement(element) {
             if (Tone.context.state !== 'running') { Tone.context.resume(); }
-            const note = event.target.dataset.note;
-            if (note && sampler.loaded) { sampler.triggerAttack(note, Tone.now()); }
+            const note = element.dataset.note;
+            if (note && sampler.loaded) {
+                sampler.triggerAttack(note, Tone.now());
+            }
         }
-        pianoKeys.forEach(key => {
-            key.addEventListener('mousedown', playNote);
-            key.addEventListener('mouseover', (event) => { if (isMouseDown) { playNote(event); } });
-            key.addEventListener('mouseleave', (event) => {
-                 if (isMouseDown) {
-                    const note = event.target.dataset.note;
-                    if (note) { sampler.triggerRelease(note); }
-                }
-            });
+
+        // --- 滑鼠事件 (桌面版) ---
+        pianoContainer.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            if (e.target.matches('#piano-svg rect')) {
+                playNoteFromElement(e.target);
+            }
         });
+        pianoContainer.addEventListener('mouseover', (e) => {
+            if (isMouseDown && e.target.matches('#piano-svg rect')) {
+                playNoteFromElement(e.target);
+            }
+        });
+        document.body.addEventListener('mouseup', () => {
+            isMouseDown = false;
+            sampler.releaseAll();
+        });
+        document.body.addEventListener('mouseleave', () => { // 如果滑鼠移出視窗，也當作放開
+            isMouseDown = false;
+            sampler.releaseAll();
+        });
+
+        // --- 觸控事件 (行動裝置) ---
+        function handleTouch(event) {
+            event.preventDefault(); // 防止頁面滾動或縮放
+            for (const touch of event.changedTouches) {
+                const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (element && element.matches('#piano-svg rect')) {
+                    playNoteFromElement(element);
+                }
+            }
+        }
+        pianoContainer.addEventListener('touchstart', handleTouch);
+        pianoContainer.addEventListener('touchmove', handleTouch);
+        pianoContainer.addEventListener('touchend', () => sampler.releaseAll());
+        pianoContainer.addEventListener('touchcancel', () => sampler.releaseAll());
+
 
         // --- Gemini API 功能 (金鑰管理升級) ---
         const generateBtn = document.getElementById('generate-btn');
@@ -215,10 +249,7 @@
                     throw new Error(errorDetails);
                 }
                 const result = await response.json();
-                
-                // 新增：將完整的 API 回應印在主控台
                 console.log('Gemini API Response:', result);
-
                 if (result.candidates && result.candidates.length > 0) {
                     const text = result.candidates[0].content.parts[0].text;
                     resultText.textContent = text;
@@ -237,7 +268,6 @@
             }
         });
         
-        // 頁面載入時，立即檢查金鑰狀態
         checkApiKey();
     </script>
 
