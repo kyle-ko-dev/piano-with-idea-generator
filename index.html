@@ -97,7 +97,10 @@
           </button>
         </div>
 
-        <div id="svg-container" class="w-full bg-white rounded-lg p-4">
+        <div
+          id="svg-container"
+          class="w-full bg-white rounded-lg p-4 overflow-x-auto"
+        >
           <svg
             id="piano-svg"
             class="loading"
@@ -1145,6 +1148,9 @@
       let currentScale = 1.0;
       const zoomStep = 0.1;
       function updateZoom() {
+        // We use transform: scale for zooming, but set the origin to the top-left
+        // corner. This prevents the left side of the piano from being cut off when zoomed in.
+        svgElement.style.transformOrigin = "0 0";
         svgElement.style.transform = `scale(${currentScale})`;
         zoomLevelDisplay.textContent = `目前縮放：${Math.round(
           currentScale * 100
