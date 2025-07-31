@@ -1045,6 +1045,38 @@
               class="w-full bg-white p-2 rounded border border-gray-200 overflow-x-auto"
             ></div>
           </div>
+
+          <!-- ABC 檔案載入區塊 -->
+          <div class="mt-6 p-5 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="flex items-center justify-center mb-4">
+              <h3 class="text-lg font-semibold text-gray-700">
+                📁 載入 ABC 檔案
+              </h3>
+            </div>
+            <div class="flex flex-col items-center gap-4">
+              <div class="w-full max-w-md">
+                <input
+                  type="file"
+                  id="abc-file-input"
+                  accept=".abc,.txt"
+                  class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none transition file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+              </div>
+              <button
+                id="load-abc-btn"
+                class="px-6 py-3 bg-blue-500 text-white font-semibold rounded-lg shadow-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+              >
+                載入並播放
+              </button>
+            </div>
+            <div
+              id="abc-file-status"
+              class="mt-4 p-3 bg-white border border-gray-200 rounded-lg text-center text-gray-600 text-sm"
+            >
+              請選擇一個 .abc 檔案來載入樂譜
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1104,6 +1136,7 @@
         },
       }).connect(compressor); // 將 sampler 連接到 compressor
       let currentPart = null;
+      let scheduledStopEvent = null;
 
       // --- 縮放功能 ---
       const zoomInBtn = document.getElementById("zoom-in");
@@ -1206,84 +1239,57 @@
           Tone.context.resume();
         }
 
-        // 完全清理之前的設定
+        // --- 徹底清理之前的設定 ---
         Tone.Transport.stop();
-        Tone.Transport.cancel();
+        Tone.Transport.cancel(); // 清除所有已排程的事件
         Tone.Transport.position = 0;
 
-        // 清除所有事件監聽器
-        Tone.Transport.off("stop");
+        // 如果有舊的 Part，先清理
+        if (currentPart) {
+          currentPart.dispose();
+          currentPart = null;
+        }
+        // 清除舊的自動停止事件
+        if (scheduledStopEvent) {
+          Tone.Transport.clear(scheduledStopEvent);
+          scheduledStopEvent = null;
+        }
+        // --- 清理結束 ---
+
+        // 強制重置按鈕狀態
+        playPauseBtn.textContent = "播放";
 
         // 從ABC記譜法中解析tempo（如果存在的話）
         let finalTempo = sequence.tempo || 100;
         const tempoMatch = abcString.match(/Q:1\/4=(\d+)/);
         if (tempoMatch) {
           finalTempo = parseInt(tempoMatch[1]);
-          console.log(`從ABC譜解析到tempo: ${finalTempo}`);
         }
-
-        // 設定 tempo - 確保在創建 Part 之前設定
         Tone.Transport.bpm.value = finalTempo;
-        console.log(`最終設定 tempo: ${Tone.Transport.bpm.value} BPM`);
 
-        if (currentPart) {
-          currentPart.dispose();
-          currentPart = null;
-        }
-
-        // 排序音符以確保時間順序正確
         const sortedNotes = sequence.notes.sort(
           (a, b) =>
             Tone.Time(a.time).toSeconds() - Tone.Time(b.time).toSeconds()
         );
 
         currentPart = new Tone.Part((time, value) => {
-          // 修正：限制 velocity 範圍，避免爆音
           const normalizedVelocity = Math.min(
             Math.max(value.velocity || 0.7, 0.1),
             0.8
           );
-
-          if (Array.isArray(value.note)) {
-            // 處理和弦：同時播放多個音符
-            console.log(`播放和弦: ${value.note.join(", ")} at ${value.time}`);
-            value.note.forEach((note) => {
-              sampler.triggerAttackRelease(
-                note,
-                value.duration,
-                time,
-                normalizedVelocity
-              );
-            });
-
-            // 視覺化和弦中的所有音符
-            Tone.Draw.schedule(() => {
-              value.note.forEach((note) => {
-                const keyElement = document.querySelector(
-                  `[data-note="${note}"]`
-                );
-                if (keyElement) {
-                  keyElement.classList.add("playing");
-                  setTimeout(
-                    () => keyElement.classList.remove("playing"),
-                    Tone.Time(value.duration).toMilliseconds()
-                  );
-                }
-              });
-            }, time);
-          } else {
-            // 處理單音
-            console.log(`播放單音: ${value.note} at ${value.time}`);
-            sampler.triggerAttackRelease(
-              value.note,
-              value.duration,
-              time,
-              normalizedVelocity
-            );
-
-            Tone.Draw.schedule(() => {
+          sampler.triggerAttackRelease(
+            value.note,
+            value.duration,
+            time,
+            normalizedVelocity
+          );
+          Tone.Draw.schedule(() => {
+            const notesToHighlight = Array.isArray(value.note)
+              ? value.note
+              : [value.note];
+            notesToHighlight.forEach((note) => {
               const keyElement = document.querySelector(
-                `[data-note="${value.note}"]`
+                `[data-note="${note}"]`
               );
               if (keyElement) {
                 keyElement.classList.add("playing");
@@ -1292,40 +1298,30 @@
                   Tone.Time(value.duration).toMilliseconds()
                 );
               }
-            }, time);
-          }
-        }, sortedNotes);
+            });
+          }, time);
+        }, sortedNotes).start(0);
 
-        // 設定 part 開始時間
-        currentPart.start(0);
         currentPart.loop = false;
-
-        // 監聽 transport stop 事件來更新按鈕狀態（只註冊一次）
-        Tone.Transport.on("stop", () => {
-          playPauseBtn.textContent = "播放";
-          console.log("播放停止，按鈕重置為播放");
-        });
 
         // 計算總播放時間並設定自動停止
         const lastNote = sortedNotes[sortedNotes.length - 1];
         if (lastNote) {
           const endTime =
             Tone.Time(lastNote.time).toSeconds() +
-            Tone.Time(lastNote.duration).toSeconds() +
-            0.5; // 加一點緩衝時間
-          console.log(`設定自動停止時間: ${endTime}秒`);
-          Tone.Transport.scheduleOnce(() => {
-            console.log("音樂播放結束，自動停止");
+            Tone.Time(lastNote.duration).toSeconds();
+          // 使用 schedule (而不是 scheduleOnce) 以便在每次重播時都能觸發停止
+          // 這個排程事件會在 setupPlayback 開始時的 Tone.Transport.cancel() 中被清除
+          scheduledStopEvent = Tone.Transport.schedule(() => {
             Tone.Transport.stop();
-          }, endTime);
+          }, endTime + 0.1); // 加一點緩衝時間
         }
 
         playbackControls.classList.remove("hidden");
         sheetMusicContainer.classList.remove("hidden");
-        playPauseBtn.textContent = "播放";
 
-        // 渲染內嵌樂譜 - 設定正確的鋼琴譜選項
-        abcScorePreview.innerHTML = ""; // 清空舊樂譜
+        // 渲染樂譜
+        abcScorePreview.innerHTML = "";
         ABCJS.renderAbc(abcScorePreview, abcString, {
           responsive: "resize",
           staffwidth: 600,
@@ -1334,7 +1330,7 @@
           paddingleft: 20,
           paddingtop: 20,
           paddingbottom: 20,
-          staffsep: 80, // 增加五線譜之間的間距
+          staffsep: 80,
           wrap: {
             minSpacing: 1.8,
             maxSpacing: 2.7,
@@ -1360,29 +1356,461 @@
         };
       }
 
+      // --- 統一的事件監聽器 ---
       playPauseBtn.addEventListener("click", async () => {
-        // 確保音訊 context 已啟動
         if (Tone.context.state !== "running") {
           await Tone.context.resume();
         }
-
         if (Tone.Transport.state === "started") {
           Tone.Transport.pause();
-          playPauseBtn.textContent = "繼續";
         } else {
-          // 重置位置到開始（如果是停止狀態）
-          if (Tone.Transport.state === "stopped") {
-            Tone.Transport.position = 0;
-          }
           Tone.Transport.start();
-          playPauseBtn.textContent = "暫停";
         }
       });
 
       stopBtn.addEventListener("click", () => {
         Tone.Transport.stop();
-        Tone.Transport.position = 0; // 重置播放位置
+      });
+
+      // 監聽 Transport 狀態變化來更新UI
+      Tone.Transport.on("start", () => {
+        playPauseBtn.textContent = "暫停";
+        console.log("Transport started, button set to '暫停'");
+      });
+
+      Tone.Transport.on("pause", () => {
+        playPauseBtn.textContent = "繼續";
+        console.log("Transport paused, button set to '繼續'");
+      });
+
+      Tone.Transport.on("stop", () => {
         playPauseBtn.textContent = "播放";
+        Tone.Transport.position = 0;
+        console.log("Transport stopped, button set to '播放'");
+      });
+
+      // --- ABC 檔案載入功能 ---
+      const abcFileInput = document.getElementById("abc-file-input");
+      const loadAbcBtn = document.getElementById("load-abc-btn");
+      const abcFileStatus = document.getElementById("abc-file-status");
+
+      // 啟用載入按鈕當檔案被選擇時
+      abcFileInput.addEventListener("change", () => {
+        if (abcFileInput.files.length > 0) {
+          loadAbcBtn.disabled = false;
+          loadAbcBtn.classList.remove("opacity-50", "cursor-not-allowed");
+          abcFileStatus.textContent = `已選擇檔案: ${abcFileInput.files[0].name}`;
+          abcFileStatus.classList.remove("text-gray-600");
+          abcFileStatus.classList.add("text-blue-600");
+        } else {
+          loadAbcBtn.disabled = true;
+          loadAbcBtn.classList.add("opacity-50", "cursor-not-allowed");
+          abcFileStatus.textContent = "請選擇一個 .abc 檔案來載入樂譜";
+          abcFileStatus.classList.remove("text-blue-600");
+          abcFileStatus.classList.add("text-gray-600");
+        }
+      });
+
+      // 解析 ABC 記譜法並轉換為音符序列
+      function parseAbcToSequence(abcString) {
+        try {
+          console.log("開始解析 ABC 檔案:", abcString);
+
+          // 提取基本資訊
+          const tempoMatch = abcString.match(/Q:1\/4=(\d+)/);
+          const tempo = tempoMatch ? parseInt(tempoMatch[1]) : 120;
+          const meterMatch = abcString.match(/M:(\d+)\/(\d+)/);
+          const meter = meterMatch
+            ? { num: parseInt(meterMatch[1]), den: parseInt(meterMatch[2]) }
+            : { num: 4, den: 4 };
+
+          // 提取單位音符長度 (L: field)
+          const lengthMatch = abcString.match(/L:1\/(\d+)/);
+          const unitLength = lengthMatch ? parseInt(lengthMatch[1]) : 4; // 預設1/4
+          const beatValue = 4 / unitLength; // 每個單位音符的拍數值
+
+          console.log(
+            `解析到 tempo: ${tempo}, meter: ${meter.num}/${meter.den}, unit length: 1/${unitLength} (${beatValue} 拍)`
+          );
+
+          // 分離不同聲部
+          const lines = abcString.split("\n");
+          let voice1Lines = [];
+          let voice2Lines = [];
+          let currentVoice = null;
+
+          lines.forEach((line) => {
+            if (line.startsWith("[V:1]")) {
+              currentVoice = 1;
+              // 提取聲部1的音符內容
+              const content = line.substring(5).trim();
+              if (content) voice1Lines.push(content);
+            } else if (line.startsWith("[V:2")) {
+              currentVoice = 2;
+              // 提取聲部2的音符內容
+              const content = line.substring(line.indexOf("]") + 1).trim();
+              if (content) voice2Lines.push(content);
+            } else if (currentVoice === 1 && !line.match(/^[XTMLKQ]:/)) {
+              if (line.trim()) voice1Lines.push(line.trim());
+            } else if (currentVoice === 2 && !line.match(/^[XTMLKQ]:/)) {
+              if (line.trim()) voice2Lines.push(line.trim());
+            }
+          });
+
+          console.log("聲部1內容:", voice1Lines);
+          console.log("聲部2內容:", voice2Lines);
+
+          const notes = [];
+
+          // 解析聲部1（右手/高音）
+          if (voice1Lines.length > 0) {
+            const voice1Notes = parseVoiceLine(
+              voice1Lines.join(" "),
+              1,
+              meter,
+              beatValue
+            );
+            notes.push(...voice1Notes);
+          }
+
+          // 解析聲部2（左手/低音）
+          if (voice2Lines.length > 0) {
+            const voice2Notes = parseVoiceLine(
+              voice2Lines.join(" "),
+              2,
+              meter,
+              beatValue
+            );
+            notes.push(...voice2Notes);
+          }
+
+          console.log("解析完成，共", notes.length, "個音符事件");
+
+          return {
+            tempo: tempo,
+            notes: notes,
+          };
+        } catch (error) {
+          console.error("ABC 解析錯誤:", error);
+          return null;
+        }
+      }
+
+      // 解析單個聲部的音符
+      function parseVoiceLine(voiceLine, voiceNumber, meter, beatValue = 1) {
+        const notes = [];
+        let totalBeats = 0; // 全局時間軸
+
+        // 移除結束符號並按小節分割
+        const measures = voiceLine
+          .replace(/\|]/g, "")
+          .split("|")
+          .filter((m) => m.trim());
+
+        const measureLength = meter.num; // 以拍數為單位
+
+        measures.forEach((measure, measureIndex) => {
+          // 追蹤小節內的拍數
+          let measurePos = 0;
+          console.log(
+            `處理第${
+              measureIndex + 1
+            }小節 (聲部${voiceNumber}): "${measure.trim()}"`
+          );
+
+          // 分割音符/和弦 - 改進正則表達式處理複雜格式
+          const tokens =
+            measure
+              .trim()
+              .match(/\[[^\]]+\][\d\/]*|[A-Ga-g][#b,']*[\d\/]*|\S+/g) || [];
+
+          tokens.forEach((token, idx) => {
+            if (!token.trim()) return;
+
+            // 計算原始時值
+            let duration = parseDuration(token, beatValue);
+            let cappedDuration = duration;
+
+            // 若超過小節剩餘拍數，則只取剩餘拍數
+            if (measurePos + duration > measureLength) {
+              cappedDuration = measureLength - measurePos;
+            }
+
+            // 若是全分音符(或唯一音符)且剛好在小節開頭，直接延長到小節結束
+            if (
+              measurePos === 0 &&
+              (duration >= measureLength ||
+                (tokens.length === 1 && duration >= measureLength * 0.8))
+            ) {
+              cappedDuration = measureLength;
+              console.log(`全分音符處理: ${token} 延長到 ${cappedDuration} 拍`);
+            }
+
+            // 構造音符事件
+            const noteEvent = parseToken(
+              token,
+              totalBeats, // 使用全局時間
+              voiceNumber,
+              beatValue,
+              meter,
+              cappedDuration // 傳遞正確的時值
+            );
+            if (noteEvent) {
+              notes.push(noteEvent);
+              console.log(`添加音符事件:`, noteEvent);
+            }
+
+            measurePos += cappedDuration;
+            totalBeats += cappedDuration;
+          });
+        });
+
+        return notes;
+      }
+
+      // 解析單個音符/和弦token
+      function parseToken(
+        token,
+        time,
+        voiceNumber,
+        beatValue = 1,
+        meter = { num: 4, den: 4 },
+        overrideDuration = null
+      ) {
+        // 檢查是否為和弦 [C,E,G,] 或 [CEG] 格式
+        const chordMatch = token.match(/\[([^\]]+)\]/);
+        if (chordMatch) {
+          const chordNotes = [];
+          // 分割和弦內容，處理逗號分隔和連續音符格式
+          const chordContent = chordMatch[1];
+          let noteStrings = [];
+
+          // 檢查是否為逗號分隔格式 (如 "C,G,C") 或混合格式 (如 "G,B,D F")
+          if (chordContent.includes(",")) {
+            // 先按空格分割，再處理每個部分的逗號
+            const spaceParts = chordContent.split(/\s+/);
+            noteStrings = [];
+
+            for (const spacePart of spaceParts) {
+              if (spacePart.includes(",")) {
+                // 處理逗號分隔的部分 (如 "G,B,D")
+                const commaParts = spacePart.split(",");
+                for (let i = 0; i < commaParts.length; i++) {
+                  const part = commaParts[i].trim();
+                  if (!part) continue;
+
+                  if (i < commaParts.length - 1) {
+                    // 不是最後一個部分，添加逗號表示低八度
+                    noteStrings.push(part + ",");
+                  } else {
+                    // 最後一個部分，保持原樣
+                    noteStrings.push(part);
+                  }
+                }
+              } else {
+                // 沒有逗號的部分，直接添加
+                noteStrings.push(spacePart.trim());
+              }
+            }
+          } else {
+            // 處理空格分隔的音符格式 (如 "c e g c'") 和連續音符格式 (如 "CEG")
+            if (chordContent.includes(" ")) {
+              // 空格分隔的音符
+              noteStrings = chordContent.split(/\s+/).filter((n) => n.trim());
+            } else {
+              // 連續音符格式，使用正則表達式分割
+              noteStrings = chordContent.match(/[A-Ga-g][#b]?[',]*/g) || [];
+            }
+          }
+
+          console.log(`解析和弦 ${token}:`, noteStrings);
+          console.log(`和弦內容: "${chordContent}"`);
+
+          for (const noteStr of noteStrings) {
+            const note = convertAbcToToneJs(noteStr.trim(), voiceNumber);
+            if (note) {
+              chordNotes.push(note);
+              console.log(`和弦音符: ${noteStr} -> ${note}`);
+            } else {
+              console.warn(`無法轉換音符: ${noteStr}`);
+            }
+          }
+
+          if (chordNotes.length > 0) {
+            return {
+              time: `${time}*${beatValue}`,
+              note: chordNotes,
+              duration: getDurationString(
+                overrideDuration !== null
+                  ? overrideDuration
+                  : parseDuration(token, beatValue)
+              ),
+              velocity: 0.6,
+            };
+          }
+        } else {
+          // 單個音符
+          const note = convertAbcToToneJs(token, voiceNumber);
+          if (note) {
+            return {
+              time: `${time}*${beatValue}`,
+              note: note,
+              duration: getDurationString(
+                overrideDuration !== null
+                  ? overrideDuration
+                  : parseDuration(token, beatValue)
+              ),
+              velocity: 0.6,
+            };
+          }
+        }
+
+        return null;
+      }
+
+      // 解析音符持續時間
+      function parseDuration(token, beatValue = 1) {
+        // 移除和弦括號來檢查持續時間
+        const cleanToken = token.replace(/[\[\]]/g, "");
+
+        // 檢查分數記號 (如 C/2, G/4)
+        const fractionMatch = cleanToken.match(/\/(\d+)/);
+        if (fractionMatch) {
+          return (1 / parseFloat(fractionMatch[1])) * beatValue;
+        }
+
+        // 檢查數字後綴 (如 G2, C4)
+        const durationMatch = cleanToken.match(/(\d+)$/);
+        if (durationMatch) {
+          return parseFloat(durationMatch[1]) * beatValue;
+        }
+
+        // 預設單位長度
+        return beatValue;
+      }
+
+      // 將數字持續時間轉換為 Tone.js 字串格式
+      function getDurationString(beats) {
+        // 支援超過4拍的自訂時值（如6/4、3/2等）
+        if (beats >= 4) return "1n"; // 全音符及以上都用全音符
+        if (beats >= 3) return "2n."; // 附點二分音符
+        if (beats >= 2) return "2n"; // 二分音符
+        if (beats >= 1.5) return "4n."; // 附點四分音符
+        if (beats >= 1) return "4n"; // 四分音符
+        if (beats >= 0.75) return "8n."; // 附點八分音符
+        if (beats >= 0.5) return "8n"; // 八分音符
+        return "16n"; // 十六分音符
+      }
+
+      // 將 ABC 記譜法的音符轉換為 Tone.js 格式
+      function convertAbcToToneJs(abcNote, voiceNumber = 1) {
+        if (!abcNote || abcNote.trim() === "") return null;
+
+        // 先移除時長標記，例如 "C4" -> "C", "g/2" -> "g"
+        const noteOnly = abcNote.replace(/[\d/]+$/, "");
+
+        // 移除非音符字符，但保留大小寫信息
+        const cleanNote = noteOnly.replace(/[^\w#b',]/g, "");
+        if (!cleanNote) return null;
+
+        // 基本音符映射
+        let note = cleanNote.charAt(0);
+        let accidental = "";
+        let octave;
+
+        // ABC 記譜法：大寫字母為低八度，小寫字母為高八度
+        if (note >= "A" && note <= "G") {
+          // 大寫字母 (低八度)
+          note = note.toUpperCase();
+          octave = voiceNumber === 1 ? 4 : 3; // 聲部1預設4，聲部2預設3
+        } else if (note >= "a" && note <= "g") {
+          // 小寫字母 (高八度)
+          note = note.toUpperCase();
+          octave = voiceNumber === 1 ? 5 : 4; // 小寫字母比大寫高一個八度
+        } else {
+          return null;
+        }
+
+        // 處理升降號
+        if (cleanNote.includes("#")) accidental = "#";
+        if (cleanNote.includes("b")) accidental = "b";
+
+        // 處理八度標記
+        const commaCount = (cleanNote.match(/,/g) || []).length;
+        const apostropheCount = (cleanNote.match(/'/g) || []).length;
+
+        // ABC記譜法中，逗號降八度，撇號升八度
+        octave = octave - commaCount + apostropheCount;
+
+        // 確保八度在合理範圍內
+        octave = Math.max(0, Math.min(8, octave));
+
+        const result = `${note}${accidental}${octave}`;
+        console.log(
+          `轉換音符: ${abcNote} -> ${result} (聲部${voiceNumber}, 逗號:${commaCount}, 撇號:${apostropheCount})`
+        );
+        return result;
+      }
+
+      // 載入 ABC 檔案功能
+      loadAbcBtn.addEventListener("click", async () => {
+        const file = abcFileInput.files[0];
+        if (!file) {
+          alert("請先選擇一個檔案！");
+          return;
+        }
+
+        try {
+          abcFileStatus.textContent = "正在載入檔案...";
+          abcFileStatus.classList.remove(
+            "text-blue-600",
+            "text-green-600",
+            "text-red-600"
+          );
+          abcFileStatus.classList.add("text-orange-600");
+
+          const fileContent = await file.text();
+          console.log("載入的 ABC 內容:", fileContent);
+
+          // 解析 ABC 檔案
+          const sequence = parseAbcToSequence(fileContent);
+
+          if (!sequence || !sequence.notes || sequence.notes.length === 0) {
+            throw new Error("無法解析 ABC 檔案或檔案中沒有有效的音符");
+          }
+
+          // 顯示解析結果的詳細信息
+          console.log("解析結果摘要:");
+          console.log("- 總音符數:", sequence.notes.length);
+          console.log("- Tempo:", sequence.tempo);
+          console.log("- 前5個音符:", sequence.notes.slice(0, 5));
+
+          // 檢查音符的時間分佈
+          const timings = sequence.notes.map((n) => n.time).sort();
+          console.log(
+            "- 時間範圍:",
+            timings[0],
+            "到",
+            timings[timings.length - 1]
+          );
+
+          // 設定播放功能
+          setupPlayback(sequence, fileContent);
+
+          // 更新結果顯示
+          resultText.innerHTML = `<strong>已載入 ABC 檔案：</strong>${file.name}<br><strong>音符數量：</strong>${sequence.notes.length}<br><strong>速度：</strong>${sequence.tempo} BPM`;
+
+          abcFileStatus.textContent = `✓ 成功載入檔案: ${file.name}`;
+          abcFileStatus.classList.remove("text-orange-600");
+          abcFileStatus.classList.add("text-green-600");
+        } catch (error) {
+          console.error("載入 ABC 檔案失敗:", error);
+          abcFileStatus.textContent = `✗ 載入失敗: ${error.message}`;
+          abcFileStatus.classList.remove("text-orange-600");
+          abcFileStatus.classList.add("text-red-600");
+
+          resultText.textContent = `載入 ABC 檔案時發生錯誤：${error.message}`;
+        }
       });
 
       // --- Gemini API 功能 ---
@@ -1401,8 +1829,8 @@
         if (apiKey) {
           apiKeySetupView.classList.add("hidden");
           apiKeyDisplayView.classList.remove("hidden");
-          generateBtn.disabled = false;
-          generateBtn.classList.remove("opacity-50", "cursor-not-allowed");
+          // 檢查輸入框是否有內容才啟用按鈕
+          updateGenerateButtonState();
         } else {
           apiKeySetupView.classList.remove("hidden");
           apiKeyDisplayView.classList.add("hidden");
@@ -1410,6 +1838,19 @@
           generateBtn.classList.add("opacity-50", "cursor-not-allowed");
           resultText.textContent =
             "請先在上方設定您的 Gemini API 金鑰以啟用此功能。";
+        }
+      }
+
+      function updateGenerateButtonState() {
+        const apiKey = localStorage.getItem("geminiApiKey");
+        const hasPrompt = promptInput.value.trim().length > 0;
+
+        if (apiKey && hasPrompt) {
+          generateBtn.disabled = false;
+          generateBtn.classList.remove("opacity-50", "cursor-not-allowed");
+        } else {
+          generateBtn.disabled = true;
+          generateBtn.classList.add("opacity-50", "cursor-not-allowed");
         }
       }
 
@@ -1435,6 +1876,8 @@
         playbackControls.classList.add("hidden");
         sheetMusicContainer.classList.add("hidden");
         Tone.Transport.stop();
+
+        updateGenerateButtonState();
       });
 
       async function handleGenerateClick() {
@@ -1555,7 +1998,16 @@ ABC記譜法要求：
           const data = JSON.parse(result.candidates[0].content.parts[0].text);
 
           resultText.innerHTML = `<strong>旋律描述：</strong>${data.melody_description}`;
-          setupPlayback(data, data.abc_notation);
+
+          // 直接使用ABC解析器來確保一致的格式
+          const sequence = parseAbcToSequence(data.abc_notation);
+          if (sequence) {
+            setupPlayback(sequence, data.abc_notation);
+          } else {
+            // 如果ABC解析失敗，嘗試使用原始數據但會觸發重新解析
+            console.log("ABC解析失敗，使用原始數據並將觸發重新解析");
+            setupPlayback(data, data.abc_notation);
+          }
         } catch (error) {
           console.error("Gemini API 呼叫失敗:", error);
           resultText.textContent = `發生錯誤：${error.message}。`;
@@ -1577,6 +2029,9 @@ ABC記譜法要求：
         }
         checkApiKey();
       });
+
+      // 頁面載入時檢查API金鑰狀態
+      checkApiKey();
     </script>
   </body>
 </html>
