@@ -22,7 +22,6 @@
             height: 250px; 
             background-color: #f9fafb; 
             user-select: none; 
-            /* 為了觸控體驗，告訴瀏覽器我們將自行處理觸控行為 */
             touch-action: none;
         }
         #piano-svg { width: 100%; transition: transform 0.2s ease-in-out; transform-origin: center; }
@@ -112,7 +111,7 @@
         zoomOutBtn.addEventListener('click', () => { if (currentScale > 0.2) { currentScale -= zoomStep; updateZoom(); } });
         updateZoom();
 
-        // --- 聲音播放功能 (真實鋼琴採樣 + 多點觸控) ---
+        // --- 聲音播放功能 (修正重複觸發 + 多點觸控) ---
         const loadingStatus = document.getElementById('loading-status');
         loadingStatus.textContent = '(音色載入中...)';
         const sampler = new Tone.Sampler({
@@ -127,50 +126,64 @@
         
         const pianoContainer = document.getElementById('svg-container');
         let isMouseDown = false;
-        
-        function playNoteFromElement(element) {
+        // 使用 Map 來追蹤每個觸控點(或滑鼠)最後互動的元素
+        const lastActiveElement = new Map();
+
+        function playNoteFromElement(element, identifier = 'mouse') {
+            // 核心修正：如果互動的元素和上次一樣，就直接返回
+            if (lastActiveElement.get(identifier) === element) {
+                return;
+            }
             if (Tone.context.state !== 'running') { Tone.context.resume(); }
             const note = element.dataset.note;
             if (note && sampler.loaded) {
                 sampler.triggerAttack(note, Tone.now());
+                lastActiveElement.set(identifier, element); // 更新這個觸點的最後互動元素
             }
+        }
+
+        function releaseAllNotes() {
+            lastActiveElement.clear();
+            sampler.releaseAll();
         }
 
         // --- 滑鼠事件 (桌面版) ---
         pianoContainer.addEventListener('mousedown', (e) => {
-            isMouseDown = true;
             if (e.target.matches('#piano-svg rect')) {
-                playNoteFromElement(e.target);
+                isMouseDown = true;
+                playNoteFromElement(e.target, 'mouse');
             }
         });
         pianoContainer.addEventListener('mouseover', (e) => {
             if (isMouseDown && e.target.matches('#piano-svg rect')) {
-                playNoteFromElement(e.target);
+                playNoteFromElement(e.target, 'mouse');
             }
         });
         document.body.addEventListener('mouseup', () => {
             isMouseDown = false;
-            sampler.releaseAll();
+            releaseAllNotes();
         });
-        document.body.addEventListener('mouseleave', () => { // 如果滑鼠移出視窗，也當作放開
-            isMouseDown = false;
-            sampler.releaseAll();
+        document.body.addEventListener('mouseleave', () => {
+            if (isMouseDown) {
+                isMouseDown = false;
+                releaseAllNotes();
+            }
         });
 
         // --- 觸控事件 (行動裝置) ---
         function handleTouch(event) {
-            event.preventDefault(); // 防止頁面滾動或縮放
+            event.preventDefault();
             for (const touch of event.changedTouches) {
                 const element = document.elementFromPoint(touch.clientX, touch.clientY);
                 if (element && element.matches('#piano-svg rect')) {
-                    playNoteFromElement(element);
+                    playNoteFromElement(element, touch.identifier);
                 }
             }
         }
         pianoContainer.addEventListener('touchstart', handleTouch);
         pianoContainer.addEventListener('touchmove', handleTouch);
-        pianoContainer.addEventListener('touchend', () => sampler.releaseAll());
-        pianoContainer.addEventListener('touchcancel', () => sampler.releaseAll());
+        pianoContainer.addEventListener('touchend', releaseAllNotes);
+        pianoContainer.addEventListener('touchcancel', releaseAllNotes);
 
 
         // --- Gemini API 功能 (金鑰管理升級) ---
